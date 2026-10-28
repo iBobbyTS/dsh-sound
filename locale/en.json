@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Notification Sound",
+    "description": "Per-event sounds for turn completion, user stop, approval, question, plan review, goal blocked and failure, each with its own sound and volume, plus a separate subagent channel."
+  }
+}

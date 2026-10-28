@@ -2,8 +2,9 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（DSH）Web 端插件：**任务完成后播放通知铃声**，并在**需要人介入时**
-（审批、提问、计划评审、目标受阻、任务失败）播放注意提示音。
+DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃声**，并在**需要人介入时**
+（审批、提问、计划评审、目标受阻、任务失败）播放注意提示音；**用户主动停止**是独立事件，
+默认静音、可单独配置。
 
 > 📬 **已提交至 [Awesome DSH Plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)** — [PR #752](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/752)（等待维护者审批）
 
@@ -13,24 +14,31 @@ DeepSeek Harness（DSH）Web 端插件：**任务完成后播放通知铃声**�
 
 ## 功能
 
-### 六类事件完全独立
+### 七类事件完全独立
 
 每类事件**各自配置声音与音量**（0–100%）：
 
-| 事件 | 检测来源 | 默认声音 |
+| 事件 | 检测来源（DSH 0.2.x 客户端事件面） | 默认声音 |
 |---|---|---|
-| 回答完成 / 后台任务完成 | `turn/end` 且 `reason.kind === 'completed'`；任务 → `completed` | 风铃 |
-| 审批请求 | `approval/requested` 帧 | 叮咚 |
-| 用户提问 | `question/requested` 帧（不满足计划评审特征） | 叮咚 |
-| 计划评审 | `question/requested` 帧（单问题 + 计划评审意图） | 叮咚 |
-| 目标受阻 | goal 投影进入 `blocked` | 叮咚 |
-| 后台任务失败 / 循环失败 | 任务 → `failed`；`turn/end` 且 `error`；`host/agent-error` | 铃铛 |
+| 回答完成 | 已保留会话的 `turn/end` 且 `reason.kind === 'completed'`；其他会话看列表行 `running` 由 true 变 false | 风铃 |
+| 用户停止 | `turn/end` 且 `reason.kind === 'aborted'`（`user` / `parent` / `disposed` / `legacy`） | 静音 |
+| 审批请求 | `uiSession.sessionStatus` 的 `pendingInteraction.kind === 'approval'` | 叮咚 |
+| 用户提问 | `pendingInteraction.kind === 'question'` | 叮咚 |
+| 计划评审 | `pendingInteraction.kind === 'plan-review'` | 叮咚 |
+| 目标受阻 | 列表行 goal 投影的 `phase` 进入 `blocked` | 叮咚 |
+| 失败 | `turn/end` 的 `error` / `interrupted` / `aborted(hook)`；`api-session/error` | 铃铛 |
 
-- **完成事件**受「当前会话不响铃」限制；**注意事件**（审批/提问/计划评审/目标受阻/失败）始终响铃。
-- 用户停止（`aborted`）、`killed` 任务、`max-tokens` / `blocked` / `interrupted` 不响完成音。
-- 事件由连接层帧流（`events.mux` + `events.host`）精确检测。mux 打开时回放的
-  未决审批/提问（刷新恢复）不响；同一 `rpcId` 只响一次。
-- 事件流不可用、或连续解包失败时自动降级为快照 diff。
+- **完成事件**受「当前会话不响铃」限制（按列表行 `retainedBy.mainView` 判定当前会话）；
+  **注意事件**（审批/提问/计划评审/目标受阻/失败）始终响铃。
+- **用户停止**不再借用失败音：它是独立事件，默认静音；想听提示可单独给它配声音。
+  `blocked` / `max-tokens` / `forked`（以及内部的 `parent` / `disposed` 取消）不响。
+- 需要人介入的状态来自 `uiSession.sessionStatus` 的 `pendingInteraction`，以请求 `key`
+  判定「新请求」：刷新恢复、重连回放同一请求都不重复响，回答后新请求照常响。
+- 回合结束原因只对**已保留（打开着）的会话**可见（`SessionBinding.eventSource` 的
+  `turn/end`）；后台未打开的会话只有 `running` 事实可用，按完成处理。这是 DSH 0.2.x
+  取消全局会话事件流之后的平台边界。
+- 0.2.x 已无 `session/jobs` 帧：一次性子代理任务改由其**子会话**的 `running` / `turn/end`
+  归入子代理通道。
 - **多标签页**：同时打开多个标签页时同一次事件只响一声（BroadcastChannel 决胜）；
   单标签页立即播放，不做 40ms 握手。
 
@@ -38,13 +46,12 @@ DeepSeek Harness（DSH）Web 端插件：**任务完成后播放通知铃声**�
 
 子代理来源的事件与主 agent 分开检测、独立控制：
 
-- **一次性子代理任务** — `session/jobs` 中 `kind === 'subagent'` 的任务（并行委派时
-  每个子代理完成都会响主完成音的扰民问题由此解决）；
 - **子代理会话** — 会话行带 `origin: 'subagent'` / `parentId` 的事件（可继续子代理），
-  包括子会话回合结束、审批、提问、目标受阻与失败。
+  包括子会话回合结束、用户停止、审批、提问、计划评审、目标受阻与失败。
 
-设置面板新增**子代理事件**分区：六个事件行（声音来源与音量控件与主事件一致），
-外加一个「忽略子代理事件」总开关。子代理六类声音默认全部静音，主 agent 事件行为不变。
+设置面板新增**子代理事件**分区：七个事件行（声音来源与音量控件与主事件一致），
+外加一个「忽略子代理事件」总开关。子代理完成与停止默认静音，其余事件可单独配置，
+主 agent 事件行为不变。
 
 ### 声音来源
 
@@ -58,7 +65,7 @@ DeepSeek Harness（DSH）Web 端插件：**任务完成后播放通知铃声**�
 ### 设置面板（设置 → 声音通知）
 
 总开关与配置导入/导出保持常驻；**主 Agent / 子代理** 两个 Tab 切换面板：
-主 Tab 是六类主事件行，子代理 Tab 是六类子代理事件行加「忽略子代理事件」开关。
+主 Tab 是七类主事件行，子代理 Tab 是七类子代理事件行加「忽略子代理事件」开关。
 每个事件行标题行右侧为音量滑块，下方为 Radio.Button 分段选择（点击即选中并播放）；
 选「本地文件」时行下方出现选择/更换按钮与文件名。
 
@@ -75,6 +82,12 @@ dsh plugin --profile web add @ai-galaxy/dsh-sound
 ```
 
 其他 profile 同理：`dsh plugin --profile <name> add @ai-galaxy/dsh-sound`。
+
+插件页里显示的名字是 **通知音效**（英文界面为 **Notification Sound**），简介同步跟随界面语言
+（中/英/葡/西）。显示名与简介来自 `locale/<语言>.json` 的 `meta.title` / `meta.description`，
+并以 `./locale/*.json` 导出；包名只作为兜底。图标则由 `package.json` 的 `icon` 字段声明。
+插件页的列表在打开时取一次快照：安装插件或改了这些元数据后，需要点该页右上角**刷新**
+（或重启 DSH）才会更新。
 
 想跟进未发布的 `main` 时，可从 GitHub 源安装：
 
@@ -93,17 +106,18 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
 
 - 客户端配置保存在浏览器 **localStorage**（键 `dsh-sound:config`），读取时做字段校验与默认值兜底。
   上传的本地音乐存入 **IndexedDB**（`dsh-sound-audio`），不受 localStorage 容量限制。
-- 配置键：`enabled`、`quietCurrent`、`ignoreSubagent`，以及六个主声音 + 六个主音量字段——
-  `completionSound` / `approvalSound` / `questionSound` / `planReviewSound` /
-  `goalBlockedSound` / `failureSound`（内置键 / `none` / `local` / `data:` URL /
-  `audio:<id>`）与 `completionVolume` … `failureVolume`（0–1）；子代理通道另有对应的
-  `subagentCompletionSound` … `subagentFailureSound` 与
-  `subagentCompletionVolume` … `subagentFailureVolume`（声音默认全部 `none`）。
+- 配置键：`enabled`、`quietCurrent`、`ignoreSubagent`，以及七个主声音 + 七个主音量字段——
+  `completionSound` / `stoppedSound` / `approvalSound` / `questionSound` /
+  `planReviewSound` / `goalBlockedSound` / `failureSound`（内置键 / `none` / `local` /
+  `data:` URL / `audio:<id>`）与 `completionVolume` … `failureVolume`（0–1）；子代理通道
+  另有对应的 `subagentCompletionSound` … `subagentFailureSound` 与
+  `subagentCompletionVolume` … `subagentFailureVolume`（完成与停止默认 `none`）。
   `localFiles` 记住每类事件（`completion` … 与 `subagent-completion` …）上次选的
   本地文件，切到内置音再切回时不丢。
-- **0.2.0 配置自动迁移**：旧配置的 `defaultSound` 迁为 `completionSound`，
-  voice/TTS 值降级为该类默认音，`workspaces` / `debounceMs` / 全局 `volume` /
-  语音设置等旧字段一律忽略。
+- **旧配置自动迁移**：0.2.0 的 `defaultSound` 迁为 `completionSound`；0.4.x 配置缺少的
+  `stoppedSound` / `stoppedVolume` 等新字段按默认值补齐（用户停止 = 静音）。其余旧字段
+  （`attentionSound`、`workspaces`、`debounceMs`、全局 `volume`、语音设置）一律忽略，
+  voice/TTS 值降级为该类默认音。
 - **导出 / 导入**：设置面板可把完整配置下载为 JSON（IndexedDB 音频引用内嵌为 data URL），
   也可从 JSON 文件恢复——换浏览器 / 换设备无需重新配置。
 - 宿主端同时注册 `dsh-sound` 设置命名空间：rc.6 的 settings API 白名单
@@ -115,21 +129,22 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
 **兼容范围**
 
 - Node.js:`>=20`(`engines.node`)。
-- DSH:已在 `0.1.5-alpha.1`、`0.1.5-alpha.2`、`0.1.5-rc.1`、`0.1.5-rc.2` 上验证,
-  并在 `dsh.compatibility.dshReleases` 中声明为 `compatible`;另在 `0.1.3-alpha.1`
-  源码构建上做过端到端冒烟(设置面板 + 真实事件响铃)。
-- 验证记录(2026-09-13):上述每个版本都跑了一遍一次性 Profile 流程——
-  `dsh plugin --profile web add <tarball>` → `dsh web --no-open` 启动且 boot 页包含
-  插件 bundle(`@ai-galaxy/dsh-sound/client.js`,无插件加载错误)→
-  `dsh plugin --profile web remove @ai-galaxy/dsh-sound` 后 profile 干净;
-  每次使用临时 `DSH_HOME`,验证后删除。
+- DSH:`0.2.1-rc.2`、`0.2.1-rc.3`(`dsh.compatibility.dshReleases` 中声明为 `compatible`)。
+  这两版用 `ctx.remote` 转发事件 + `uiSession.sessionStatus` 取代了 0.1.5 的
+  `connection.api.events`、`approval/question requested` 与 `session/jobs` 帧；
+  0.1.5 及更早版本**不再兼容**。
+- 验证记录(2026-10-28):对照 `deepseek-harness` 0.2.1 源码逐项核对事件名、载荷与控制流
+  (`approval/request` waterfall 的注册顺序、`pendingInteraction` 的 `kind`/`key`、
+  `turn/end` 的 `reason.kind`、`api-session/error`、goal 投影)，并用 `tools/test-client.mjs`
+  的模拟运行时跑通七类事件；本地桌面 profile 已以 `link:` 方式安装，插件页能渲染声明的图标与
+  本地化名称/简介；本次**未**在真实会话中逐项复验声音行为。
 
 **依赖**
 
 - 宿主端:仅 `@deepseek-ai/schemastery`(设置 schema)与 peer 依赖 `@deepseek-ai/cordis`,
   无其他运行时依赖。
-- 客户端:React、`@deepseek-ai/dsh-client-runtime`、`@deepseek-ai/dsh-client-ui-settings`
-  均由宿主应用通过客户端模块表提供,包内不携带副本。
+- 客户端:React 由宿主应用通过客户端模块表提供,包内不携带副本;客户端半体只使用宿主
+  已暴露的服务(`sessions` / `locale` / `slots`,以及可选的 `uiSession` / `remote`)。
 
 **能力与权限**
 

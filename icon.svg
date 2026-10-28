@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Notification sound: a bell flanked by sound arcs -->
+  <circle cx="32" cy="9" r="2.6" fill="#247bbf"/>
+  <path d="M32 13c-5 0-9 4-9 9v8c0 3.6-1.7 6.6-4.5 8.5h27C43.7 36.6 42 33.6 42 30v-8c0-5-4-9-9-9z" fill="#247bbf"/>
+  <circle cx="32" cy="44" r="3.6" fill="#247bbf"/>
+  <path d="M13 21a9 9 0 0 0 0 18" fill="none" stroke="#5aa1d8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M51 21a9 9 0 0 1 0 18" fill="none" stroke="#5aa1d8" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,7 +1,8 @@
 {
   "name": "@ai-galaxy/dsh-sound",
-  "version": "0.4.1",
-  "description": "DeepSeek Harness plugin: per-event task-completion and attention sounds for turn-end / approval / question / plan-review / goal-blocked / task-failure, each with its own sound (built-in synth, local audio file) and volume, with a separate subagent channel (Web UI)",
+  "version": "0.5.0",
+  "description": "DeepSeek Harness (0.2.x) plugin: per-event task-completion, user-stop, approval, question, plan-review, goal-blocked and failure sounds, each with its own sound and volume, plus a separate subagent channel (Web UI)",
+  "icon": "icon.svg",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -22,10 +23,13 @@
     "./client": {
       "default": "./lib/client.js"
     },
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
+    "locale/*.json",
+    "icon.svg",
     "screenshots.json",
     "cordis.patch.yml",
     "README.md",
@@ -69,10 +73,8 @@
     },
     "compatibility": {
       "dshReleases": {
-        "0.1.5-alpha.1": "compatible",
-        "0.1.5-alpha.2": "compatible",
-        "0.1.5-rc.1": "compatible",
-        "0.1.5-rc.2": "compatible"
+        "0.2.1-rc.2": "compatible",
+        "0.2.1-rc.3": "compatible"
       }
     }
   },

@@ -2,8 +2,9 @@
 
 English | [中文](README.zh.md)
 
-A DeepSeek Harness (DSH) plugin for the **Web UI**: play a customizable sound when a task
-finishes, and an attention sound whenever something needs a human.
+A DeepSeek Harness (DSH 0.2.x) plugin for the **Web UI**: play a customizable sound when a
+task finishes, and an attention sound whenever something needs a human. A user-initiated
+stop is its own event — silent by default, configurable on its own.
 
 > 📬 **Submitted to [Awesome DSH Plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)** — [PR #752](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/752) (pending maintainer approval)
 
@@ -13,26 +14,35 @@ finishes, and an attention sound whenever something needs a human.
 
 ## Features
 
-### Six independent events
+### Seven independent events
 
 Each event type has its **own sound and its own volume** (0–100%):
 
-| Event | Detection | Default sound |
+| Event | Detection (DSH 0.2.x client surface) | Default sound |
 |---|---|---|
-| Turn end / background task completed | `turn/end` with `reason.kind === 'completed'`; job → `completed` | Chime |
-| Approval request | `approval/requested` frame | Ding |
-| User question | `question/requested` frame (not plan-review shaped) | Ding |
-| Plan review | `question/requested` frame classified as plan-review | Ding |
-| Goal blocked | goal projection enters `blocked` | Ding |
-| Background / loop failure | job → `failed`; `turn/end` `error`; `host/agent-error` | Bell |
+| Turn end | retained session `turn/end` with `reason.kind === 'completed'`; other sessions via list-row `running` true → false | Chime |
+| User stop | `turn/end` with `reason.kind === 'aborted'` (`user` / `parent` / `disposed` / `legacy`) | Mute |
+| Approval request | `uiSession.sessionStatus` `pendingInteraction.kind === 'approval'` | Ding |
+| User question | `pendingInteraction.kind === 'question'` | Ding |
+| Plan review | `pendingInteraction.kind === 'plan-review'` | Ding |
+| Goal blocked | list-row goal projection `phase` entering `blocked` | Ding |
+| Failure | `turn/end` `error` / `interrupted` / `aborted(hook)`; `api-session/error` | Bell |
 
-- **Completion** respects the “quiet current session” option; **attention** events (approval /
-  question / plan-review / goal-blocked / failure) always ring.
-- User abort, killed jobs, and `max-tokens` / `blocked` / `interrupted` turns stay silent.
-- Events come from `events.mux` plus `events.host`. Mux-open replay of still-pending
-  approval/question frames (refresh recovery) does not ring; each `rpcId` rings at most once.
-- When the event stream is unavailable or frames fail to unwrap, the plugin falls back to
-  snapshot diffing.
+- **Completion** respects the “quiet current session” option (current session derived from
+  the list row `retainedBy.mainView`); **attention** events (approval / question / plan-review /
+  goal-blocked / failure) always ring.
+- **User stop** no longer borrows the failure sound: it is its own event, silent by default,
+  with its own sound/volume if you want an audible acknowledgement. `blocked` / `max-tokens` /
+  `forked` (and the internal `parent` / `disposed` cancellations) stay silent.
+- Pending human interactions come from `uiSession.sessionStatus`; a request `key` defines
+  “new request”, so refresh recovery and reconnect replay of the same pending request stay
+  quiet while the next request rings as usual.
+- The turn-end reason is only available for **retained (open) sessions**
+  (`SessionBinding.eventSource` `turn/end`); a background session that is not open exposes
+  only `running`, so it is treated as completed. That is the platform boundary after DSH
+  0.2.x removed the global session event stream.
+- `session/jobs` frames no longer exist: one-shot subagent tasks now reach the subagent
+  channel through their child session's `running` / `turn/end`.
 - **Multiple tabs**: the same event rings only once (BroadcastChannel tie-break). A single
   tab plays immediately, with no 40 ms handshake.
 
@@ -40,15 +50,14 @@ Each event type has its **own sound and its own volume** (0–100%):
 
 Subagent-originated events are detected and routed independently from the main agent:
 
-- **One-shot subagent jobs** — a `session/jobs` entry with `kind === 'subagent'` (each
-  parallel delegation completing used to ring the main completion sound; now it does not).
 - **Subagent sessions** — events whose session row is marked `origin: 'subagent'` /
-  `parentId` (continuable subagents), including child-session turn ends, approvals,
-  questions, goal projections, and failures.
+  `parentId` (continuable subagents), including child-session turn ends, user stops,
+  approvals, questions, plan reviews, goal projections, and failures.
 
-The settings panel adds a **子代理事件 / Subagent Events** section with six rows (same sound
+The settings panel adds a **子代理事件 / Subagent Events** section with seven rows (same sound
 sources and per-row volume as the main events) plus an **ignore all subagent events** master
-switch. All six subagent sounds default to **mute**; main-agent events are unchanged.
+switch. Subagent completion and stop default to **mute**; the other rows are configurable.
+Main-agent events are unchanged.
 
 ### Sound sources
 
@@ -64,8 +73,8 @@ Each event picks one sound from a **Radio.Button group** in the settings panel:
 ### Settings panel (Settings → 声音通知 / Sound Notification)
 
 The master switch and config export/import stay visible; a **主 Agent / 子代理** tab bar
-switches the panel between the six main event rows and the subagent panel (its own six rows
-plus the 「忽略子代理事件」/ ignore-all-subagent-events switch). Each event row has a volume
+switches the panel between the seven main event rows and the subagent panel (its own seven
+rows plus the 「忽略子代理事件」/ ignore-all-subagent-events switch). Each event row has a volume
 slider on the title row and a Radio.Group of Radio.Button options below — click to select
 and play; a local-file row with a choose/replace button appears when 本地文件 is selected.
 
@@ -82,6 +91,13 @@ dsh plugin --profile web add @ai-galaxy/dsh-sound
 ```
 
 Other profiles work the same way: `dsh plugin --profile <name> add @ai-galaxy/dsh-sound`.
+
+The Plugins page shows this package as **Notification Sound** with a matching summary,
+localized to the UI language (English, Chinese, Portuguese, Spanish). The display name and
+intro come from `locale/<language>.json` (`meta.title` / `meta.description`), exported as
+`./locale/*.json`; the package name is only the fallback. The same page renders the icon
+declared by `package.json`'s `icon` field. A Plugins page already open before an install or
+metadata change caches its snapshot — refresh it (or restart DSH) to see either update.
 
 To track unreleased `main`, install from the GitHub source instead:
 
@@ -104,17 +120,19 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
   `dsh-sound:config`), sanitizing every read and filling defaults. Uploaded
   local music files are stored in **IndexedDB** (`dsh-sound-audio`) instead —
   no localStorage quota limits.
-- Config keys: `enabled`, `quietCurrent`, `ignoreSubagent`, and six main sound + six main
-  volume fields — `completionSound` / `approvalSound` / `questionSound` / `planReviewSound` /
-  `goalBlockedSound` / `failureSound` (builtin key, `none`, `local`, `data:` URL,
-  or `audio:<id>`) and `completionVolume` … `failureVolume` (0–1) — plus the matching
-  `subagentCompletionSound` … `subagentFailureSound` / `subagentCompletionVolume` …
-  `subagentFailureVolume` pairs for the subagent channel (all sounds default to `none`).
-  `localFiles` keeps the last chosen local file per event (`completion`, … and
-  `subagent-completion`, …) so switching to a built-in sound and back does not drop it.
-- **0.2.0 migration**: older configs are upgraded automatically — `defaultSound`
-  becomes `completionSound`, voice/TTS values degrade to the per-event default,
-  and `workspaces` / `debounceMs` / global `volume` / voice settings are dropped.
+- Config keys: `enabled`, `quietCurrent`, `ignoreSubagent`, and seven main sound + seven main
+  volume fields — `completionSound` / `stoppedSound` / `approvalSound` / `questionSound` /
+  `planReviewSound` / `goalBlockedSound` / `failureSound` (builtin key, `none`, `local`,
+  `data:` URL, or `audio:<id>`) and `completionVolume` … `failureVolume` (0–1) — plus the
+  matching `subagentCompletionSound` … `subagentFailureSound` /
+  `subagentCompletionVolume` … `subagentFailureVolume` pairs for the subagent channel
+  (completion and stop default to `none`). `localFiles` keeps the last chosen local file per
+  event (`completion`, … and `subagent-completion`, …) so switching to a built-in sound and
+  back does not drop it.
+- **Migration**: 0.2.0 configs get `defaultSound` → `completionSound`; 0.4.x configs missing
+  the `stoppedSound` / `stoppedVolume` fields pick up their defaults (user stop = mute).
+  Voice/TTS values degrade to the per-event default, and `attentionSound` / `workspaces` /
+  `debounceMs` / global `volume` / voice settings are dropped.
 - **Export / import**: the settings panel downloads the full config as JSON
   (IndexedDB audio references are inlined as data URLs) and restores it from a
   JSON file — moving browsers or machines does not require reconfiguration.
@@ -128,23 +146,26 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
 **Compatibility**
 
 - Node.js: `>=20` (`engines.node`).
-- DSH: verified on `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2` —
-  declared as `compatible` in `dsh.compatibility.dshReleases`; the plugin was also
-  smoke-tested end-to-end (settings panel + live event sounds) on a source build of
-  `0.1.3-alpha.1`.
-- Verification (2026-09-13): each declared version passed a disposable-profile cycle —
-  `dsh plugin --profile web add <tarball>` → `dsh web --no-open` boots and serves the
-  plugin bundle (`@ai-galaxy/dsh-sound/client.js` present in the boot page, no plugin
-  load errors) → `dsh plugin --profile web remove @ai-galaxy/dsh-sound` leaves the
-  profile clean. Each run used a temporary `DSH_HOME`, deleted afterwards.
+- DSH: `0.2.1-rc.2` and `0.2.1-rc.3` (declared as `compatible` in
+  `dsh.compatibility.dshReleases`). Those releases replaced the 0.1.5 client surface
+  (`connection.api.events`, `approval`/`question requested` and `session/jobs` frames) with
+  `ctx.remote` forwarded events plus `uiSession.sessionStatus`; 0.1.5 and earlier are
+  **no longer supported**.
+- Verification (2026-10-28): every event name, payload, and control-flow assumption was
+  checked against the `deepseek-harness` 0.2.1 source (waterfall registration order,
+  `pendingInteraction` `kind`/`key`, `turn/end` `reason.kind`, `api-session/error`, goal
+  projection) and covered by the simulated runtime in `tools/test-client.mjs`. The package
+  is also installed in a local desktop profile as a linked dependency, where the plugin
+  card renders the declared icon and the localized title/intro. Per-event sound behaviour
+  was not re-tested in a live session for this release.
 
 **Dependencies**
 
 - Host half: `@deepseek-ai/schemastery` (settings schema) plus the peer
   `@deepseek-ai/cordis`. No other runtime dependencies.
-- Client half: React, `@deepseek-ai/dsh-client-runtime`, and
-  `@deepseek-ai/dsh-client-ui-settings` are provided by the host application through
-  the client module table; the package ships no copies of them.
+- Client half: React is provided by the host application through the client module table;
+  the package ships no copies of it. The client half only consumes host-exposed services
+  (`sessions` / `locale` / `slots`, plus optional `uiSession` / `remote`).
 
 **Capabilities and permissions**
 

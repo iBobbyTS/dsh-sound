@@ -1,4 +1,5 @@
 // Host-half behavioral test for dsh-sound (run with: node tools/test-host.mjs)
+import { readFileSync, readdirSync } from 'node:fs'
 import { apply, inject, name, Config } from '../lib/index.js'
 
 let failures = 0
@@ -35,6 +36,8 @@ const resolved = registered.schema({})
 ok(resolved.enabled === true, 'default enabled=true')
 ok(resolved.quietCurrent === false, 'default quietCurrent=false')
 ok(resolved.completionSound === 'chime', 'default completionSound=chime')
+ok(resolved.stoppedSound === 'none', 'default stoppedSound=none (user stop is silent)')
+ok(resolved.stoppedVolume === 1, 'default stoppedVolume=1')
 ok(resolved.approvalSound === 'ding', 'default approvalSound=ding')
 ok(resolved.questionSound === 'ding', 'default questionSound=ding')
 ok(resolved.planReviewSound === 'ding', 'default planReviewSound=ding')
@@ -48,6 +51,8 @@ ok(resolved.goalBlockedVolume === 1, 'default goalBlockedVolume=1')
 ok(resolved.failureVolume === 1, 'default failureVolume=1')
 ok(resolved.ignoreSubagent === false, 'default ignoreSubagent=false')
 ok(resolved.subagentCompletionSound === 'none', 'default subagentCompletionSound=none')
+ok(resolved.subagentStoppedSound === 'none', 'default subagentStoppedSound=none')
+ok(resolved.subagentStoppedVolume === 1, 'default subagentStoppedVolume=1')
 ok(resolved.subagentApprovalSound === 'ding', 'default subagentApprovalSound=ding')
 ok(resolved.subagentQuestionSound === 'ding', 'default subagentQuestionSound=ding')
 ok(resolved.subagentPlanReviewSound === 'ding', 'default subagentPlanReviewSound=ding')
@@ -71,6 +76,8 @@ const full = registered.schema({
   ignoreSubagent: true,
   subagentCompletionSound: 'bell',
   subagentFailureVolume: 0.25,
+  stoppedSound: 'success',
+  subagentStoppedSound: 'complete',
 })
 ok(full.enabled === false && full.quietCurrent === true, 'user values preserved')
 ok(full.completionSound === 'data:audio/mp3;base64,AAAA', 'custom data URL preserved')
@@ -79,6 +86,7 @@ ok(full.approvalVolume === 0.3 && full.failureVolume === 0.5, 'per-event volumes
 ok(full.ignoreSubagent === true, 'ignoreSubagent preserved')
 ok(full.subagentCompletionSound === 'bell', 'subagentCompletionSound preserved')
 ok(full.subagentFailureVolume === 0.25, 'subagentFailureVolume preserved')
+ok(full.stoppedSound === 'success' && full.subagentStoppedSound === 'complete', 'stopped sounds preserved')
 
 // 5) schema rejects invalid sections
 for (const bad of [
@@ -89,11 +97,38 @@ for (const bad of [
   { ignoreSubagent: 'yes' },
   { subagentCompletionVolume: 1.5 },
   { subagentApprovalSound: 42 },
+  { stoppedVolume: 2 },
+  { subagentStoppedVolume: -1 },
 ]) {
   let rejected = false
   try { registered.schema(bad) } catch (e) { rejected = true }
   ok(rejected, 'rejects invalid section: ' + JSON.stringify(bad))
 }
+
+// 6) plugin display metadata: the plugin manager reads a localized title and
+//    description from exported locale/<language>.json files (DSH package-meta).
+//    A locale file that is not exported, or has no meta.title, silently falls
+//    back to the package name, so each requirement is asserted here.
+const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const localeDir = new URL('../locale/', import.meta.url)
+const LANGUAGE_ID = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u
+const localeFiles = readdirSync(localeDir).filter(file => file.endsWith('.json'))
+const meta = {}
+ok(localeFiles.includes('en.json'), 'locale/en.json exists (required English fallback)')
+for (const file of localeFiles) {
+  const language = file.slice(0, -5)
+  ok(LANGUAGE_ID.test(language), `locale/${file} uses a valid language id`)
+  const dict = JSON.parse(readFileSync(new URL(file, localeDir), 'utf8'))
+  meta[language.toLowerCase()] = dict.meta || {}
+  ok(typeof dict.meta?.title === 'string' && dict.meta.title.trim() !== '', `locale/${file} declares meta.title`)
+  ok(typeof dict.meta?.description === 'string' && dict.meta.description.trim() !== '', `locale/${file} declares meta.description`)
+}
+ok(manifest.exports?.['./locale/*.json'] === './locale/*.json', 'exports expose locale/*.json to the Harness reader')
+ok(manifest.files.includes('locale/*.json'), 'published package ships locale/*.json')
+ok(meta.en !== undefined && meta.en.title !== manifest.name, 'English title is a display name, not the package name')
+ok(meta.zh !== undefined && meta.zh.title === '通知音效', 'Chinese title matches the settings section')
+ok(meta['pt-br'] !== undefined && meta['pt-br'].title === 'Som de notificação', 'Portuguese title present')
+ok(meta.es !== undefined && meta.es.title === 'Sonido de notificación', 'Spanish title present')
 
 console.log(failures === 0 ? 'ALL HOST TESTS PASSED' : failures + ' FAILURES')
 process.exit(failures === 0 ? 0 : 1)

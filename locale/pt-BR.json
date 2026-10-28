@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Som de notificação",
+    "description": "Sons por evento para conclusão, interrupção, aprovação, pergunta, revisão do plano, objetivo bloqueado e falha, cada um com som e volume próprios, além de um canal separado para subagentes."
+  }
+}

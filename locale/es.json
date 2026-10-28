@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sonido de notificación",
+    "description": "Sonidos por evento para finalización, detención, aprobación, pregunta, revisión del plan, objetivo bloqueado y fallo, cada uno con su propio sonido y volumen, además de un canal independiente para subagentes."
+  }
+}

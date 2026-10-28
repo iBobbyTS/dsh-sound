@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.5.0 (2026-10-28) — 适配 DSH 0.2.x 客户端事件面；用户停止独立事件
+
+**不兼容变更**：客户端半体改为 DSH 0.2.x 的事件面，0.1.5 及更早版本不再支持。
+0.2.x 删除了 `connection.api.events`（mux/host 帧流）以及 `approval/requested`、
+`question/requested`、`session/jobs`、`session/projection` 帧，旧实现因此在 0.2.x 上
+只剩「回合结束」的 running 兜底——问题 1（提问无声音）即由此而来。
+
+- **提问 / 审批 / 计划评审改为读 `uiSession.sessionStatus.pendingInteraction`**：
+  `kind` 区分 approval / question / plan-review，请求 `key` 判定「新请求」；
+  刷新恢复与重连回放同一请求不重响，回答后的新请求正常响。
+  不再注册 `approval/request`、`user-questions/request` waterfall——它们在核心 UI 之后
+  注册会被先到的 answerer 吞掉，读状态投影没有这个顺序问题。
+- **新增「用户停止」事件（`stopped`，默认静音）**：`turn/end` 的
+  `reason.kind === 'aborted'`（`user` / `parent` / `disposed` / `legacy`）不再播放失败音，
+  其声音与音量可单独配置（`stoppedSound` / `stoppedVolume`，子代理通道同名 `subagent*`）。
+  `error` / `interrupted` / `aborted(hook)` 仍走失败音；`blocked` / `max-tokens` / `forked` 不响。
+- **回合结束原因按会话来源分层**：打开着（已保留）的会话从
+  `SessionBinding.eventSource` 的 `turn/end` 精确判定；后台未打开的会话只有列表行
+  `running`，按完成处理（并给已保留会话留 500ms 等待原因，避免把用户停止误判为完成）。
+- **失败**补上 `api-session/error`（回合外 agent 错误）；目标受阻仍用列表行 goal 投影。
+- **移除 `session/jobs` 逻辑**：后台子代理任务改由其子会话的 `running` / `turn/end`
+  进入子代理通道。
+- **`quietCurrent`** 改用列表行 `retainedBy.mainView` 判定当前会话（0.2.x 列表快照
+  没有 `current` 字段）。
+- 事件表改为单一 `EVENT_TABLE` 派生所有字段映射，主 agent / 子代理各七类；设置页新增
+  「用户停止」行，四种语言同步补 `event.stopped`。
+- 测试：`tools/test-client.mjs` 重写为模拟 0.2.x 运行时（`sessions.list`、`sessionStatus`、
+  `binding.eventSource`、`remote.$on`、BroadcastChannel），覆盖提问/审批/计划评审、
+  用户停止静音与可配置、失败/意外中断、历史基线、500ms 等待、目标受阻、子代理通道、
+  多标签页去重与 UI；`tools/test-host.mjs` 补 stopped 默认值与非法值。
+- 兼容声明更新为 `0.2.1-rc.2` / `0.2.1-rc.3`；验证方式为对照 0.2.1 源码逐项核对契约 +
+  上述模拟运行时测试；本地桌面 profile 已以 `link:` 方式安装，插件页可渲染声明的图标与
+  本地化名称，声音行为未在真实会话中逐项复验。
+- 插件页显示名与简介本地化：新增 `locale/en.json` / `zh.json` / `pt-BR.json` / `es.json`
+  的 `meta.title` / `meta.description`，并以 `./locale/*.json` 导出、随包发布；插件页不再
+  显示包名，显示 **通知音效**（英文 **Notification Sound**）。`tools/test-host.mjs` 增加
+  语言文件名、meta 字段、导出与发布清单的断言。
+
 ## 0.4.1 (2026-09-13) — DSH STORE 契约整改
 
 - manifest 增加 canonical `repository` / `homepage` / `bugs`，与 GitHub 项目身份一致。
