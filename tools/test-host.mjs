@@ -36,6 +36,10 @@ const resolved = registered.schema({})
 ok(resolved.enabled === true, 'default enabled=true')
 ok(resolved.quietCurrent === false, 'default quietCurrent=false')
 ok(resolved.completionSound === 'chime', 'default completionSound=chime')
+ok(resolved.queuedSound === 'ding', 'default queuedSound=ding (queued follow-up has its own setting)')
+ok(resolved.queuedVolume === 1, 'default queuedVolume=1')
+ok(resolved.subagentQueuedSound === undefined && resolved.subagentQueuedVolume === undefined,
+  'the queued event has no subagent counterpart')
 ok(resolved.stoppedSound === 'none', 'default stoppedSound=none (user stop is silent)')
 ok(resolved.stoppedVolume === 1, 'default stoppedVolume=1')
 ok(resolved.approvalSound === 'ding', 'default approvalSound=ding')
@@ -78,6 +82,8 @@ const full = registered.schema({
   subagentFailureVolume: 0.25,
   stoppedSound: 'success',
   subagentStoppedSound: 'complete',
+  queuedSound: 'success',
+  queuedVolume: 0.4,
 })
 ok(full.enabled === false && full.quietCurrent === true, 'user values preserved')
 ok(full.completionSound === 'data:audio/mp3;base64,AAAA', 'custom data URL preserved')
@@ -87,6 +93,7 @@ ok(full.ignoreSubagent === true, 'ignoreSubagent preserved')
 ok(full.subagentCompletionSound === 'bell', 'subagentCompletionSound preserved')
 ok(full.subagentFailureVolume === 0.25, 'subagentFailureVolume preserved')
 ok(full.stoppedSound === 'success' && full.subagentStoppedSound === 'complete', 'stopped sounds preserved')
+ok(full.queuedSound === 'success' && full.queuedVolume === 0.4, 'queued sound and volume preserved')
 
 // 5) schema rejects invalid sections
 for (const bad of [
@@ -99,6 +106,8 @@ for (const bad of [
   { subagentApprovalSound: 42 },
   { stoppedVolume: 2 },
   { subagentStoppedVolume: -1 },
+  { queuedVolume: 2 },
+  { queuedSound: 42 },
 ]) {
   let rejected = false
   try { registered.schema(bad) } catch (e) { rejected = true }

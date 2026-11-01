@@ -50,6 +50,48 @@ const completed = { kind: 'completed' }
 const failed = { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } }
 const stoppedByUser = { kind: 'aborted', reason: { kind: 'user' } }
 
+/** One agent inbox message: `source.kind` is what separates human input from agent/系统回填. */
+const human = (id) => ({ id, role: 'user', content: [{ type: 'text', text: 'queued ' + id }], source: { kind: 'user', rpcId: id } })
+const agentNotice = (id) => ({ id, role: 'user', content: [{ type: 'text', text: 'notice ' + id }], source: { kind: 'agent', agentId: 'a1' } })
+const inboxState = (nextTurn, nextStep) => ({ 'next-turn': nextTurn || [], 'next-step': nextStep || [] })
+
+/** Host inbox splice semantics (agent/inbox/spliced) over one projection value. */
+function applySplice(state, data) {
+  const next = { 'next-turn': [...state['next-turn']], 'next-step': [...state['next-step']] }
+  const list = next[data.target]
+  const start = Math.max(0, Math.min(data.start, list.length))
+  const removed = Math.min(data.removedCount || 0, list.length - start)
+  list.splice(start, removed, ...(data.inserted || []))
+  return next
+}
+
+/** One Session.projections double: key-addressed faces over a mutable row map. */
+function createProjectionStore(initial) {
+  const rows = new Map(Object.entries(initial || {}))
+  const channels = new Map()
+  const channel = (key) => {
+    if (!channels.has(key)) {
+      const listeners = new Set()
+      channels.set(key, {
+        listeners,
+        face: {
+          getSnapshot: () => rows.get(key),
+          subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn) },
+        },
+      })
+    }
+    return channels.get(key)
+  }
+  return {
+    faceOf: (key) => channel(key).face,
+    set(key, value) {
+      rows.set(key, value)
+      for (const fn of [...channel(key).listeners]) fn()
+    },
+  }
+}
+
+
 function makeEnv(seededConfig, options) {
   options = options || {}
   const registered = {}
@@ -281,10 +323,16 @@ function makeEnv(seededConfig, options) {
       notifyList()
     },
     // binding helpers
-    bind(id, history, kind) {
+    bind(id, history, kind, inbox) {
       const eventSource = createEventSource()
+      const projections = createProjectionStore(inbox === undefined ? {} : { inbox })
       if (history) eventSource.load(history, kind)
-      bindings.set(id, { sessionId: id, eventSource })
+      bindings.set(id, {
+        sessionId: id,
+        eventSource,
+        session: options.withoutProjections ? { sessionId: id } : { sessionId: id, projections },
+        projections,
+      })
       // Retention updates the list row (retainedBy), exactly like the real controller.
       notifyList()
       return eventSource
@@ -295,6 +343,21 @@ function makeEnv(seededConfig, options) {
     },
     appendTurnEnd(id, seq, reason) {
       bindings.get(id).eventSource.append(turnEnd(seq, reason))
+    },
+    /** Live inbox splice: the durable event and the Host projection move together. */
+    appendInbox(id, seq, data) {
+      const binding = bindings.get(id)
+      binding.eventSource.append({ type: 'agent/inbox/spliced', seq, time: seq, data })
+      const current = binding.projections.faceOf('inbox').getSnapshot() || inboxState()
+      binding.projections.set('inbox', applySplice(current, data))
+    },
+    /** Durable inbox splice only, with the projection frame still in flight. */
+    appendInboxEvent(id, seq, data) {
+      bindings.get(id).eventSource.append({ type: 'agent/inbox/spliced', seq, time: seq, data })
+    },
+    /** Projection-only update (baseline refresh / frame without an observable event). */
+    setInbox(id, value) {
+      bindings.get(id).projections.set('inbox', value)
     },
     loadHistory(id, events, kind) {
       bindings.get(id).eventSource.load(events, kind)
@@ -606,8 +669,152 @@ function makeEnv(seededConfig, options) {
 }
 
 // =====================================================================================
-// 5. turn-less agent failures (api-session/error)
+// 4b. queued follow-up: a completed turn with human input still in the inbox
 // =====================================================================================
+{
+  // A Host that finishes a turn while a human message is queued immediately starts
+  // the next turn, so the turn-end sound must be the dedicated queued one.
+  const env = makeEnv(undefined)
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.ding) && !env.freqs.includes(FREQ.chime),
+    'completed with a queued human message plays the queued sound instead of the completion chime')
+
+  // The same turn ending without pending input keeps the completion chime.
+  const quiet = makeEnv(undefined)
+  quiet.exportsObj.apply(quiet.ctx)
+  quiet.bind('s1', null, null, inboxState())
+  quiet.setRunning('s1', true)
+  quiet.appendTurnEnd('s1', 1, completed)
+  ok(quiet.freqs.includes(FREQ.chime), 'completed with an empty inbox still plays the completion chime')
+}
+{
+  // Non-human pending work (goal continuation, agent notice) is not a queued follow-up.
+  const env = makeEnv(undefined)
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([agentNotice('n1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.chime) && !env.freqs.includes(FREQ.ding),
+    'queued agent/goal input does not count as a human follow-up')
+}
+{
+  // A steer that is still pending at the turn boundary also continues the session.
+  const env = makeEnv(undefined)
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([], [human('steer-1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.ding), 'an unconsumed human steer at turn end counts as queued')
+}
+{
+  // Live splices arrive on the same ordered log as turn/end: the fold must be current
+  // even when the projection frame has not landed yet.
+  const env = makeEnv(undefined)
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState())
+  env.setRunning('s1', true)
+  env.appendInboxEvent('s1', 2, { target: 'next-turn', start: 0, inserted: [human('m2')] })
+  env.appendTurnEnd('s1', 3, completed)
+  ok(env.freqs.includes(FREQ.ding), 'a human message queued just before turn/end switches the sound to queued')
+}
+{
+  // Queue consumed before the turn ends: back to the completion chime.
+  const env = makeEnv(undefined)
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendInbox('s1', 2, { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+  env.appendTurnEnd('s1', 3, completed)
+  ok(env.freqs.includes(FREQ.chime), 'a drained queue at turn end plays the completion chime again')
+}
+{
+  // 0.6.0 configs without the queued fields: the sanitizer supplies the default (ding)
+  // and a config write persists it.
+  const env = makeEnv({ completionSound: 'chime' })
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.ding), 'an older config gets the queued default sound')
+  env.renderUI()
+  const enabledSwitch = env.created.find((n) => n.type === 'button' && n.props.role === 'switch')
+  enabledSwitch.props.onClick()
+  const stored = JSON.parse(env.storage.get('dsh-sound:config'))
+  ok(stored.queuedSound === 'ding' && stored.queuedVolume === 1, 'a config write persists queuedSound / queuedVolume')
+  ok(stored.subagentQueuedSound === undefined, 'the queued event has no subagent counterpart')
+}
+{
+  // queuedSound / queuedVolume are independent of completionSound / completionVolume.
+  const env = makeEnv({ completionVolume: 0.9, queuedSound: 'success', queuedVolume: 0.5 })
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.success), 'queuedSound is separately configurable')
+  ok(env.gains[0] === 0.2 * 0.5, 'queuedVolume scales the queued sound gain, not completionVolume')
+}
+{
+  // queuedSound:none mutes the queued case only.
+  const env = makeEnv({ queuedSound: 'none' })
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.getOscCount() === 0, 'queuedSound none mutes the queued event')
+}
+{
+  // quietCurrent treats the queued sound as a completion-family sound.
+  const env = makeEnv({ quietCurrent: true })
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.getOscCount() === 0, 'quietCurrent suppresses the queued sound for the current view')
+}
+{
+  // A failure keeps the failure sound even with queued work.
+  const env = makeEnv(undefined)
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, failed)
+  ok(env.freqs.includes(FREQ.bell) && !env.freqs.includes(FREQ.ding), 'a failed turn keeps the failure sound')
+}
+{
+  // A user stop keeps its own channel as well.
+  const env = makeEnv({ stoppedSound: 'success' })
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, stoppedByUser)
+  ok(env.freqs.includes(FREQ.success) && !env.freqs.includes(FREQ.ding), 'a user stop keeps the stopped sound')
+}
+{
+  // Subagent sessions queue parent work, never human input: keep the subagent channel.
+  const env = makeEnv({ subagentCompletionSound: 'success' })
+  env.exportsObj.apply(env.ctx)
+  env.setList([env.row({ id: 's1', origin: 'subagent' })])
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.success) && !env.freqs.includes(FREQ.ding),
+    'subagent completion keeps its own channel even with a queue')
+}
+{
+  // A binding without the projections face (bare double / runtime without the
+  // projection store) degrades to the completion chime instead of throwing.
+  const env = makeEnv(undefined, { withoutProjections: true })
+  env.exportsObj.apply(env.ctx)
+  env.bind('s1', null, null, inboxState([human('m1')]))
+  env.setRunning('s1', true)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs.includes(FREQ.chime), 'a binding without projections still plays the completion chime (no crash)')
+}
+
+
 {
   const env = makeEnv(undefined)
   env.exportsObj.apply(env.ctx)
@@ -810,20 +1017,23 @@ function makeEnv(seededConfig, options) {
   ok(tabs.length === 2 && tabs[0].props['aria-selected'] === 'true' && tabs[1].props['aria-selected'] === 'false', 'renders 主 Agent / 子代理 tabs with the main tab active')
 
   const groups = env.created.filter((n) => n.props && n.props.role === 'radiogroup')
-  ok(groups.length === 7, 'main tab renders seven event rows (completion, stopped, approval, question, plan-review, goal-blocked, failure)')
-  ok(groups[0].props['data-kind'] === 'completion' && groups[1].props['data-kind'] === 'stopped' && groups[2].props['data-kind'] === 'approval',
-    'radio groups are named per event kind, with the new stopped row second')
+  ok(groups.length === 8, 'main tab renders eight event rows (completion, queued, stopped, approval, question, plan-review, goal-blocked, failure)')
+  ok(groups[0].props['data-kind'] === 'completion' && groups[1].props['data-kind'] === 'queued' && groups[2].props['data-kind'] === 'stopped'
+    && groups[3].props['data-kind'] === 'approval',
+    'radio groups are named per event kind, with queued second and stopped third')
 
   const radios = env.created.filter((n) => n.type === 'input' && n.props.type === 'radio')
-  ok(radios.length === 49, 'renders 49 Radio.Button inputs (7 events x 7 options)')
+  ok(radios.length === 56, 'renders 56 Radio.Button inputs (8 events x 7 options)')
   ok(radios.slice(0, 7).map((r) => r.props.value).join(',') === 'ding,chime,bell,complete,success,none,local', 'completion group lists all sound options incl. local')
   ok(radios[1].props.checked === true, 'completion default chime is checked')
-  ok(radios[7].props.name === 'dsh-sound-stopped' && radios[14].props.name === 'dsh-sound-approval', 'Radio.Button names are scoped per event')
-  ok(radios[8].props.checked === false && radios[12].props.checked === true, 'stopped defaults to the 静音 option')
-  ok(radios[7].props.value === 'ding' && radios[12].props.value === 'none', 'stopped row lists the same options')
+  ok(radios[7].props.name === 'dsh-sound-queued' && radios[14].props.name === 'dsh-sound-stopped'
+    && radios[21].props.name === 'dsh-sound-approval', 'Radio.Button names are scoped per event')
+  ok(radios[15].props.checked === false && radios[19].props.checked === true, 'stopped defaults to the 静音 option')
+  ok(radios[14].props.value === 'ding' && radios[19].props.value === 'none', 'stopped row lists the same options')
+  ok(radios[7].props.checked === true && radios[7].props.value === 'ding', 'queued defaults to ding, distinct from the completion chime')
 
   const ranges = env.created.filter((n) => n.type === 'input' && n.props.type === 'range')
-  ok(ranges.length === 7, 'renders seven independent volume sliders')
+  ok(ranges.length === 8, 'renders eight independent volume sliders')
   ok(ranges.every((r) => r.props.min === 0 && r.props.max === 100), 'volume sliders range 0-100')
   ok(ranges.every((r) => r.props.step === 1), 'volume sliders use 1% steps')
 
@@ -855,7 +1065,7 @@ function makeEnv(seededConfig, options) {
   env.exportsObj.apply(env.ctx)
   env.renderUI()
   const radios = env.created.filter((n) => n.type === 'input' && n.props.type === 'radio')
-  ok(radios.length === 49, 'Radio.Button groups still render with local values')
+  ok(radios.length === 56, 'Radio.Button groups still render with local values')
   ok(radios[6].props.checked === true, 'completion 本地文件 Radio.Button is checked for an audio: value')
   const audioInputs = env.created.filter((n) => n.type === 'input' && n.props.type === 'file' && n.props.accept === 'audio/*')
   ok(audioInputs.length === 2, 'file pickers appear below events with a local file selected')
@@ -892,7 +1102,7 @@ function makeEnv(seededConfig, options) {
   env.exportsObj.apply(env.ctx)
   const productKeys = [
     'sound.ding', 'sound.chime', 'sound.bell', 'sound.complete', 'sound.success', 'sound.none', 'sound.local',
-    'event.stopped', 'event.approval', 'event.question', 'event.planReview', 'event.goalBlocked', 'event.failure',
+    'event.queued', 'event.stopped', 'event.approval', 'event.question', 'event.planReview', 'event.goalBlocked', 'event.failure',
     'file.embeddedAudio', 'file.noneSelected', 'file.replace', 'file.choose', 'file.clickToPlay',
     'status.configUnavailable', 'section.title', 'tab.mainAgent', 'tab.subagents', 'subagent.ignoreEvents',
     'transfer.title', 'transfer.export', 'transfer.import', 'control.volume', 'control.play',
@@ -933,6 +1143,8 @@ function makeEnv(seededConfig, options) {
   const groups = env.created.filter((n) => n.props && n.props.role === 'radiogroup')
   ok(groups.length === 7 && groups[0].props['data-kind'] === 'subagent-completion' && groups[1].props['data-kind'] === 'subagent-stopped',
     'subagent tab renders seven rows including subagent-stopped')
+  ok(!groups.some((g) => g.props['data-kind'] === 'subagent-queued'),
+    'the queued row has no subagent counterpart (queues there come from the parent agent)')
 }
 
 // =====================================================================================

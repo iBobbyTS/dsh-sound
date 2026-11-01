@@ -3,8 +3,9 @@
 English | [中文](README.zh.md)
 
 A DeepSeek Harness (DSH 0.2.x) plugin for the **Web UI**: play a customizable sound when a
-task finishes, and an attention sound whenever something needs a human. A user-initiated
-stop is its own event — silent by default, configurable on its own.
+task finishes, a different one when the turn ends but human messages are still queued, and
+an attention sound whenever something needs a human. A user-initiated stop is its own
+event — silent by default, configurable on its own.
 
 > 📬 **Submitted to [Awesome DSH Plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)** — [PR #752](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/752) (pending maintainer approval)
 
@@ -14,13 +15,14 @@ stop is its own event — silent by default, configurable on its own.
 
 ## Features
 
-### Seven independent events
+### Eight independent events (main agent)
 
 Each event type has its **own sound and its own volume** (0–100%):
 
 | Event | Detection (DSH 0.2.x client surface) | Default sound |
 |---|---|---|
 | Turn end | retained session `turn/end` with `reason.kind === 'completed'`; other sessions via list-row `running` true → false | Chime |
+| Queued follow-up | same, and the agent's `inbox` projection still holds **human** input (`next-turn` / `next-step`) | Ding |
 | User stop | `turn/end` with `reason.kind === 'aborted'` (`user` / `parent` / `disposed` / `legacy`) | Mute |
 | Approval request | `uiSession.sessionStatus` `pendingInteraction.kind === 'approval'` | Ding |
 | User question | `pendingInteraction.kind === 'question'` | Ding |
@@ -31,6 +33,14 @@ Each event type has its **own sound and its own volume** (0–100%):
 - **Completion** respects the “quiet current session” option (current session derived from
   the list row `retainedBy.mainView`); **attention** events (approval / question / plan-review /
   goal-blocked / failure) always ring.
+- **Queued follow-up** separates a turn boundary from real completion: when a `completed`
+  turn still has human input in the `inbox` projection, the Host immediately opens the next
+  turn (`if (!this.inbox.hasPending) return false` in `agent-loop`), so the completion chime
+  is replaced by the dedicated queued sound (`queuedSound` / `queuedVolume`, Ding by
+  default). Only human input counts (`source.kind === 'user'`); goal continuations and
+  subagent back-fills do not. Other end reasons are untouched, so failures and user stops
+  keep their own sounds. The queue is tracked from `agent/inbox/spliced` events (the same
+  ordered log as `turn/end`), seeded by the `inbox` entry of `Session.projections`.
 - **User stop** no longer borrows the failure sound: it is its own event, silent by default,
   with its own sound/volume if you want an audible acknowledgement. `blocked` / `max-tokens` /
   `forked` (and the internal `parent` / `disposed` cancellations) stay silent.
@@ -120,13 +130,14 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
   `dsh-sound:config`), sanitizing every read and filling defaults. Uploaded
   local music files are stored in **IndexedDB** (`dsh-sound-audio`) instead —
   no localStorage quota limits.
-- Config keys: `enabled`, `quietCurrent`, `ignoreSubagent`, and seven main sound + seven main
-  volume fields — `completionSound` / `stoppedSound` / `approvalSound` / `questionSound` /
-  `planReviewSound` / `goalBlockedSound` / `failureSound` (builtin key, `none`, `local`,
-  `data:` URL, or `audio:<id>`) and `completionVolume` … `failureVolume` (0–1) — plus the
-  matching `subagentCompletionSound` … `subagentFailureSound` /
-  `subagentCompletionVolume` … `subagentFailureVolume` pairs for the subagent channel
-  (completion and stop default to `none`). `localFiles` keeps the last chosen local file per
+- Config keys: `enabled`, `quietCurrent`, `ignoreSubagent`, and eight main sound + eight main
+  volume fields — `completionSound` / `queuedSound` / `stoppedSound` / `approvalSound` /
+  `questionSound` / `planReviewSound` / `goalBlockedSound` / `failureSound` (builtin key,
+  `none`, `local`, `data:` URL, or `audio:<id>`) and `completionVolume` … `failureVolume`
+  (0–1, including `queuedVolume`) — plus the matching `subagentCompletionSound` …
+  `subagentFailureSound` / `subagentCompletionVolume` … `subagentFailureVolume` pairs for
+  the subagent channel (seven events, completion and stop default to `none`; there is no
+  `subagentQueued*`). `localFiles` keeps the last chosen local file per
   event (`completion`, … and `subagent-completion`, …) so switching to a built-in sound and
   back does not drop it.
 - **Migration**: 0.2.0 configs get `defaultSound` → `completionSound`; 0.4.x configs missing

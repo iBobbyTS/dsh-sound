@@ -1,5 +1,25 @@
 # Changelog
 
+## 未发布 — 排队续跑独立音效
+
+- **新增「排队续跑」事件（`queued`）**：`turn/end` 为 `completed`、且 agent 的 `inbox`
+  投影里仍有**人类**输入（`next-turn` / `next-step`，`source.kind === 'user'`）时，播放
+  独立的 `queuedSound` / `queuedVolume`（默认叮咚），不再用完成音暗示任务已结束。
+  宿主在 `turn/end` 之后会立即续跑同一队列（`agent-loop` 的
+  `if (!this.inbox.hasPending) return false`），所以完成音在这里是误导。
+- 队列状态与 `turn/end` 走同一条有序事件流：`Session.projections` 的 `inbox` 投影建立基线，
+  之后按 `agent/inbox/spliced` 追加推进（`removedCount` / `inserted` 语义与宿主一致）；
+  投影不可读时回退为完成音，不抛错。
+- 只影响 `completed`：`error` / `interrupted` / `aborted(hook)` 仍是失败音，用户停止仍是
+  `stoppedSound`；`quietCurrent` 同时作用于完成音与排队续跑音（都是「回合结束」类提示）。
+- 「排队续跑」只存在于主 agent 通道：子代理会话的排队来自父代理而非人类，因此没有
+  `subagentQueued*` 字段，子代理完成音不变。
+- 设置页主 agent 分区新增一行（现为八行），四种语言补 `event.queued`；
+  `tools/test-host.mjs` 补默认值、可配置值与非法值；`tools/test-client.mjs` 的绑定替身
+  增加 `session.projections` 与 inbox splice 协助方法，覆盖排队/非人类排队/steering/
+  实时 splice/队列消费/旧配置默认值/独立音量/静音/`quietCurrent`/失败与停止不受影响/
+  子代理通道/无投影降级。
+
 ## 0.5.0 (2026-10-28) — 适配 DSH 0.2.x 客户端事件面；用户停止独立事件
 
 **不兼容变更**：客户端半体改为 DSH 0.2.x 的事件面，0.1.5 及更早版本不再支持。

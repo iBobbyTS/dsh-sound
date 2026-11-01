@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃声**，并在**需要人介入时**
-（审批、提问、计划评审、目标受阻、任务失败）播放注意提示音；**用户主动停止**是独立事件，
-默认静音、可单独配置。
+DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃声**，回合结束但**还有人类
+消息在排队**时换一个独立声音，并在**需要人介入时**（审批、提问、计划评审、目标受阻、任务失败）
+播放注意提示音；**用户主动停止**是独立事件，默认静音、可单独配置。
 
 > 📬 **已提交至 [Awesome DSH Plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)** — [PR #752](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/752)（等待维护者审批）
 
@@ -14,13 +14,14 @@ DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃�
 
 ## 功能
 
-### 七类事件完全独立
+### 八类事件完全独立（主 agent）
 
 每类事件**各自配置声音与音量**（0–100%）：
 
 | 事件 | 检测来源（DSH 0.2.x 客户端事件面） | 默认声音 |
 |---|---|---|
 | 回答完成 | 已保留会话的 `turn/end` 且 `reason.kind === 'completed'`；其他会话看列表行 `running` 由 true 变 false | 风铃 |
+| 排队续跑 | 同上，且 agent 的 `inbox` 投影里仍有**人类**排队消息（`next-turn` / `next-step`） | 叮咚 |
 | 用户停止 | `turn/end` 且 `reason.kind === 'aborted'`（`user` / `parent` / `disposed` / `legacy`） | 静音 |
 | 审批请求 | `uiSession.sessionStatus` 的 `pendingInteraction.kind === 'approval'` | 叮咚 |
 | 用户提问 | `pendingInteraction.kind === 'question'` | 叮咚 |
@@ -30,6 +31,13 @@ DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃�
 
 - **完成事件**受「当前会话不响铃」限制（按列表行 `retainedBy.mainView` 判定当前会话）；
   **注意事件**（审批/提问/计划评审/目标受阻/失败）始终响铃。
+- **排队续跑**用来区分「回合边界」和「真的做完了」：`completed` 时如果 `inbox` 投影里还有
+  人类输入，宿主会在 `turn/end` 之后立刻开下一回合（`agent-loop` 的
+  `if (!this.inbox.hasPending) return false`），所以这时不再用完成音，改播单独的「排队续跑」
+  音（`queuedSound` / `queuedVolume`，默认叮咚）。只认人类输入（`source.kind === 'user'`），
+  目标续跑 / 子代理回填等系统消息不算；`error` / `aborted` 等其它结束原因不受影响，
+  失败音与用户停止音照旧。队列状态按 `agent/inbox/spliced` 事件（与 `turn/end` 同一条有序
+  日志）维护，并用 `Session.projections` 的 `inbox` 投影建基线。
 - **用户停止**不再借用失败音：它是独立事件，默认静音；想听提示可单独给它配声音。
   `blocked` / `max-tokens` / `forked`（以及内部的 `parent` / `disposed` 取消）不响。
 - 需要人介入的状态来自 `uiSession.sessionStatus` 的 `pendingInteraction`，以请求 `key`
@@ -51,7 +59,8 @@ DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃�
 
 设置面板新增**子代理事件**分区：七个事件行（声音来源与音量控件与主事件一致），
 外加一个「忽略子代理事件」总开关。子代理完成与停止默认静音，其余事件可单独配置，
-主 agent 事件行为不变。
+主 agent 事件行为不变。「排队续跑」只属于人类输入，没有子代理行——子代理会话里的排队
+来自父代理而不是人。
 
 ### 声音来源
 
@@ -106,12 +115,13 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
 
 - 客户端配置保存在浏览器 **localStorage**（键 `dsh-sound:config`），读取时做字段校验与默认值兜底。
   上传的本地音乐存入 **IndexedDB**（`dsh-sound-audio`），不受 localStorage 容量限制。
-- 配置键：`enabled`、`quietCurrent`、`ignoreSubagent`，以及七个主声音 + 七个主音量字段——
-  `completionSound` / `stoppedSound` / `approvalSound` / `questionSound` /
+- 配置键：`enabled`、`quietCurrent`、`ignoreSubagent`，以及八个主声音 + 八个主音量字段——
+  `completionSound` / `queuedSound` / `stoppedSound` / `approvalSound` / `questionSound` /
   `planReviewSound` / `goalBlockedSound` / `failureSound`（内置键 / `none` / `local` /
-  `data:` URL / `audio:<id>`）与 `completionVolume` … `failureVolume`（0–1）；子代理通道
-  另有对应的 `subagentCompletionSound` … `subagentFailureSound` 与
-  `subagentCompletionVolume` … `subagentFailureVolume`（完成与停止默认 `none`）。
+  `data:` URL / `audio:<id>`）与 `completionVolume` … `failureVolume`（0–1，含
+  `queuedVolume`）；子代理通道另有对应的 `subagentCompletionSound` …
+  `subagentFailureSound` 与 `subagentCompletionVolume` … `subagentFailureVolume`
+  （七个事件，完成与停止默认 `none`；没有 `subagentQueued*`）。
   `localFiles` 记住每类事件（`completion` … 与 `subagent-completion` …）上次选的
   本地文件，切到内置音再切回时不丢。
 - **旧配置自动迁移**：0.2.0 的 `defaultSound` 迁为 `completionSound`；0.4.x 配置缺少的
