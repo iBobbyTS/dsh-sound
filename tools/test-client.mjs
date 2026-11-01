@@ -668,6 +668,60 @@ function makeEnv(seededConfig, options) {
   ok(env.freqs.includes(FREQ.success), 'subagent session completion uses the subagent channel')
 }
 
+// A fork's parent records lineage, not delegation. Exercise both parent field names
+// through live turn/end, unbound running, and retained-session settle fallback.
+for (const parentField of ['parentSessionId', 'parentId']) {
+  for (const delivery of ['turn-end', 'running', 'settle']) {
+    for (const ignoreSubagent of [false, true]) {
+      const env = makeEnv({ ignoreSubagent, subagentCompletionSound: 'success' })
+      env.setList([env.row({ id: 's1', [parentField]: 'fork-source' })])
+      if (delivery !== 'running') env.bind('s1')
+      env.exportsObj.apply(env.ctx)
+      env.setRunning('s1', true)
+      if (delivery === 'turn-end') env.appendTurnEnd('s1', 1, completed)
+      env.setRunning('s1', false)
+      env.fireTimers()
+      ok(env.freqs[0] === FREQ.chime && env.freqs.filter((f) => f === FREQ.chime).length === 1,
+        `fork ${parentField} ${delivery} uses the main completion sound exactly once (ignoreSubagent=${ignoreSubagent})`)
+    }
+  }
+}
+{
+  const env = makeEnv(undefined)
+  env.setList([env.row({ id: 's1', parentSessionId: 'fork-source' })])
+  env.bind('s1')
+  env.exportsObj.apply(env.ctx)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs[0] === FREQ.chime, 'fork completion is audible with the default silent subagent settings')
+}
+{
+  const env = makeEnv({ ignoreSubagent: true })
+  env.setList([env.row({ id: 's1', parentSessionId: 'fork-source' })])
+  env.bind('s1', null, null, inboxState([human('follow-up')]))
+  env.exportsObj.apply(env.ctx)
+  env.appendTurnEnd('s1', 1, completed)
+  ok(env.freqs[0] === FREQ.ding, 'fork with human input still uses the main queued-follow-up sound')
+}
+for (const config of [undefined, { subagentCompletionSound: 'success' }, { subagentCompletionSound: 'success', ignoreSubagent: true }]) {
+  for (const retained of [false, true]) {
+    const env = makeEnv(config)
+    env.setList([env.row({ id: 's1', parentSessionId: 'parent-agent', origin: 'subagent' })])
+    if (retained) env.bind('s1')
+    env.exportsObj.apply(env.ctx)
+    env.setRunning('s1', true)
+    if (retained) env.appendTurnEnd('s1', 1, completed)
+    env.setRunning('s1', false)
+    env.fireTimers()
+    if (config && !config.ignoreSubagent) {
+      ok(env.freqs[0] === FREQ.success && !env.freqs.includes(FREQ.chime),
+        `explicit subagent preserves its configured completion channel (retained=${retained})`)
+    } else {
+      ok(env.getOscCount() === 0,
+        `explicit subagent preserves ${config ? 'ignoreSubagent' : 'default mute'} (retained=${retained})`)
+    }
+  }
+}
+
 // =====================================================================================
 // 4b. queued follow-up: a completed turn with human input still in the inbox
 // =====================================================================================

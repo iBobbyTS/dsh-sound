@@ -60,9 +60,11 @@ Each event type has its **own sound and its own volume** (0–100%):
 
 Subagent-originated events are detected and routed independently from the main agent:
 
-- **Subagent sessions** — events whose session row is marked `origin: 'subagent'` /
-  `parentId` (continuable subagents), including child-session turn ends, user stops,
-  approvals, questions, plan reviews, goal projections, and failures.
+- **Subagent sessions** — events whose session row is explicitly marked
+  `origin: 'subagent'`, including child-session turn ends, user stops, approvals,
+  questions, plan reviews, goal projections, and failures. A parent ID alone records
+  lineage, not delegation: ordinary forked sessions stay on the main-agent channel,
+  unaffected by the subagent mute or ignore settings.
 
 The settings panel adds a **子代理事件 / Subagent Events** section with seven rows (same sound
 sources and per-row volume as the main events) plus an **ignore all subagent events** master
