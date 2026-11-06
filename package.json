@@ -6,11 +6,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AI-Galaxy-GPU/dsh-sound.git"
+    "url": "git+https://github.com/iBobbyTS/dsh-sound.git"
   },
-  "homepage": "https://github.com/AI-Galaxy-GPU/dsh-sound#readme",
+  "homepage": "https://github.com/iBobbyTS/dsh-sound#readme",
   "bugs": {
-    "url": "https://github.com/AI-Galaxy-GPU/dsh-sound/issues"
+    "url": "https://github.com/iBobbyTS/dsh-sound/issues"
   },
   "type": "module",
   "main": "./lib/index.js",
@@ -35,7 +35,8 @@
     "README.md",
     "README.zh.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

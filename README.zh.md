@@ -1,209 +1,31 @@
 # dsh-sound
 
-[English](README.md) | 中文
+[English](README.md) · 中文
 
-DeepSeek Harness（DSH 0.2.x）Web 端插件：**任务完成后播放通知铃声**，回合结束但**还有人类
-消息在排队**时换一个独立声音，并在**需要人介入时**（审批、提问、计划评审、目标受阻、任务失败）
-播放注意提示音；**用户主动停止**是独立事件，默认静音、可单独配置。
+为 DSH Web UI 和 Desktop 提供提示音：回合完成、人类排队续跑、停止、审批、提问、计划评审、目标受阻与失败。主会话和子代理分别配置声音与音量，自定义音频保存在浏览器中。
 
-> 📬 **已提交至 [Awesome DSH Plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)** — [PR #752](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/752)（等待维护者审批）
-
-## 截图
-
-![dsh-sound 设置](assets/screenshots/sound-image.png)
-
-## 功能
-
-### 八类事件完全独立（主 agent）
-
-每类事件**各自配置声音与音量**（0–100%）：
-
-| 事件 | 检测来源（DSH 0.2.x 客户端事件面） | 默认声音 |
-|---|---|---|
-| 回答完成 | 已保留会话的 `turn/end` 且 `reason.kind === 'completed'`；其他会话看列表行 `running` 由 true 变 false | 风铃 |
-| 排队续跑 | 同上，且 agent 的 `inbox` 投影里仍有**人类**排队消息（`next-turn` / `next-step`） | 叮咚 |
-| 用户停止 | `turn/end` 且 `reason.kind === 'aborted'`（`user` / `parent` / `disposed` / `legacy`） | 静音 |
-| 审批请求 | `uiSession.sessionStatus` 的 `pendingInteraction.kind === 'approval'` | 叮咚 |
-| 用户提问 | `pendingInteraction.kind === 'question'` | 叮咚 |
-| 计划评审 | `pendingInteraction.kind === 'plan-review'` | 叮咚 |
-| 目标受阻 | 列表行 goal 投影的 `phase` 进入 `blocked` | 叮咚 |
-| 失败 | `turn/end` 的 `error` / `interrupted` / `aborted(hook)`；`api-session/error` | 铃铛 |
-
-- **完成事件**受「当前会话不响铃」限制（按列表行 `retainedBy.mainView` 判定当前会话）；
-  **注意事件**（审批/提问/计划评审/目标受阻/失败）始终响铃。
-- **排队续跑**用来区分「回合边界」和「真的做完了」：`completed` 时如果 `inbox` 投影里还有
-  人类输入，宿主会在 `turn/end` 之后立刻开下一回合（`agent-loop` 的
-  `if (!this.inbox.hasPending) return false`），所以这时不再用完成音，改播单独的「排队续跑」
-  音（`queuedSound` / `queuedVolume`，默认叮咚）。只认人类输入（`source.kind === 'user'`），
-  目标续跑 / 子代理回填等系统消息不算；`error` / `aborted` 等其它结束原因不受影响，
-  失败音与用户停止音照旧。队列状态按 `agent/inbox/spliced` 事件（与 `turn/end` 同一条有序
-  日志）维护，并用 `Session.projections` 的 `inbox` 投影建基线。
-- **用户停止**不再借用失败音：它是独立事件，默认静音；想听提示可单独给它配声音。
-  `blocked` / `max-tokens` / `forked`（以及内部的 `parent` / `disposed` 取消）不响。
-- 需要人介入的状态来自 `uiSession.sessionStatus` 的 `pendingInteraction`，以请求 `key`
-  判定「新请求」：刷新恢复、重连回放同一请求都不重复响，回答后新请求照常响。
-- 回合结束原因只对**已保留（打开着）的会话**可见（`SessionBinding.eventSource` 的
-  `turn/end`）；后台未打开的会话只有 `running` 事实可用，按完成处理。这是 DSH 0.2.x
-  取消全局会话事件流之后的平台边界。
-- 0.2.x 已无 `session/jobs` 帧：一次性子代理任务改由其**子会话**的 `running` / `turn/end`
-  归入子代理通道。
-- **多标签页**：同时打开多个标签页时同一次事件只响一声（BroadcastChannel 决胜）；
-  单标签页立即播放，不做 40ms 握手。
-
-### 子代理事件独立通道
-
-子代理来源的事件与主 agent 分开检测、独立控制：
-
-- **子代理会话** — 会话行明确带 `origin: 'subagent'` 的事件，
-  包括子会话回合结束、用户停止、审批、提问、计划评审、目标受阻与失败。
-  父会话 ID 只表示血缘，不代表子代理身份：普通 fork 会话仍走主 agent 通道，
-  不受子代理静音或「忽略子代理事件」设置影响。
-
-设置面板新增**子代理事件**分区：七个事件行（声音来源与音量控件与主事件一致），
-外加一个「忽略子代理事件」总开关。子代理完成与停止默认静音，其余事件可单独配置，
-主 agent 事件行为不变。「排队续跑」只属于人类输入，没有子代理行——子代理会话里的排队
-来自父代理而不是人。
-
-### 声音来源
-
-设置面板里每类事件用 **Radio.Group + Radio.Button** 选择声音：
-
-- **内置合成音** — 叮咚 / 风铃 / 铃铛 / 完成 / 成功，Web Audio 实时合成，无需音频文件；
-- **静音** — 该事件不响；
-- **本地文件** — 选择任意 MP3/WAV 等文件；选中后**该事件行下方会出现文件选择**。
-  上传文件存入 IndexedDB（`dsh-sound-audio`），不受 localStorage 容量限制。
-
-### 设置面板（设置 → 声音通知）
-
-总开关与配置导入/导出保持常驻；**主 Agent / 子代理** 两个 Tab 切换面板：
-主 Tab 是七类主事件行，子代理 Tab 是七类子代理事件行加「忽略子代理事件」开关。
-每个事件行标题行右侧为音量滑块，下方为 Radio.Button 分段选择（点击即选中并播放）；
-选「本地文件」时行下方出现选择/更换按钮与文件名。
+这是 [AI-Galaxy-GPU/dsh-sound](https://github.com/AI-Galaxy-GPU/dsh-sound) 的 [iBobbyTS fork](https://github.com/iBobbyTS/dsh-sound)。以下安装本 checkout；上游 npm 包不包含本 fork 的改动。
 
 ## 安装
 
-需要支持 bundle 插件的 DSH 版本（`dsh.profile.bundles` + `dsh.bundle.patch`），
-且 PATH 中有 `pnpm`（`corepack enable` 或 `npm i -g pnpm`）。
+需要 DSH、Node.js `>=20`，以及 DSH 插件安装所需的 pnpm。仓库已包含运行文件，无需构建。
 
 ```sh
-# 一键安装：pnpm 安装依赖并把本包加入 profile 的 bundles 层
-dsh plugin --profile web add @ai-galaxy/dsh-sound
-
-# 重启服务（或刷新页面），打开 设置 → 声音通知 即可配置
+git clone https://github.com/iBobbyTS/dsh-sound.git
+cd dsh-sound
+dsh plugin --profile web add "$PWD"
 ```
 
-其他 profile 同理：`dsh plugin --profile <name> add @ai-galaxy/dsh-sound`。
+Desktop 请在应用插件管理器中选择此目录；`desktop` profile 由应用管理。Windows cmd 使用完整目录路径。安装后重启 DSH Host 并刷新页面。更新时更新本 checkout，在同一 profile 重新添加同一目录。
 
-插件页里显示的名字是 **通知音效**（英文界面为 **Notification Sound**），简介同步跟随界面语言
-（中/英/葡/西）。显示名与简介来自 `locale/<语言>.json` 的 `meta.title` / `meta.description`，
-并以 `./locale/*.json` 导出；包名只作为兜底。图标则由 `package.json` 的 `icon` 字段声明。
-插件页的列表在打开时取一次快照：安装插件或改了这些元数据后，需要点该页右上角**刷新**
-（或重启 DSH）才会更新。
+## 使用
 
-想跟进未发布的 `main` 时，可从 GitHub 源安装：
+打开「设置 → 声音通知」，逐事件选择声音与音量。主会话面板为八行，子代理面板为七行及总忽略开关。停止音默认静音。普通 fork 走主会话通道，只有明确标记的子代理会话走子代理通道。
 
-```sh
-dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
-```
+音频文件保存在 IndexedDB，配置保存在 localStorage。浏览器自动播放限制可能影响播放；选择声音时可试听。可导入/导出完整设置与自定义音频。
 
-### 手动安装（无 pnpm 时）
+## 文档
 
-1. 把本包及依赖（`@deepseek-ai/schemastery`、`@deepseek-ai/cosmokit`、`@standard-schema/spec`）
-   复制到 `$DSH_HOME/profiles/web/node_modules/`；
-2. 在 `$DSH_HOME/profiles/web/package.json` 的 `dsh.profile.bundles` 中追加 `"@ai-galaxy/dsh-sound"`；
-3. 重启 `dsh web`。
-
-## 配置持久化
-
-- 客户端配置保存在浏览器 **localStorage**（键 `dsh-sound:config`），读取时做字段校验与默认值兜底。
-  上传的本地音乐存入 **IndexedDB**（`dsh-sound-audio`），不受 localStorage 容量限制。
-- 配置键：`enabled`、`quietCurrent`、`ignoreSubagent`，以及八个主声音 + 八个主音量字段——
-  `completionSound` / `queuedSound` / `stoppedSound` / `approvalSound` / `questionSound` /
-  `planReviewSound` / `goalBlockedSound` / `failureSound`（内置键 / `none` / `local` /
-  `data:` URL / `audio:<id>`）与 `completionVolume` … `failureVolume`（0–1，含
-  `queuedVolume`）；子代理通道另有对应的 `subagentCompletionSound` …
-  `subagentFailureSound` 与 `subagentCompletionVolume` … `subagentFailureVolume`
-  （七个事件，完成与停止默认 `none`；没有 `subagentQueued*`）。
-  `localFiles` 记住每类事件（`completion` … 与 `subagent-completion` …）上次选的
-  本地文件，切到内置音再切回时不丢。
-- **旧配置自动迁移**：0.2.0 的 `defaultSound` 迁为 `completionSound`；0.4.x 配置缺少的
-  `stoppedSound` / `stoppedVolume` 等新字段按默认值补齐（用户停止 = 静音）。其余旧字段
-  （`attentionSound`、`workspaces`、`debounceMs`、全局 `volume`、语音设置）一律忽略，
-  voice/TTS 值降级为该类默认音。
-- **导出 / 导入**：设置面板可把完整配置下载为 JSON（IndexedDB 音频引用内嵌为 data URL），
-  也可从 JSON 文件恢复——换浏览器 / 换设备无需重新配置。
-- 宿主端导出 `Config`，由 Loader 发现配置 schema。浏览器声音偏好仍保存于
-  localStorage，不需要额外调用 settings 服务注册。
-
-## 兼容性与能力披露
-
-**兼容范围**
-
-- Node.js:`>=20`(`engines.node`)。
-- DSH:`0.2.1-rc.2`、`0.2.1-rc.3`(`dsh.compatibility.dshReleases` 中声明为 `compatible`)。
-  这两版用 `ctx.remote` 转发事件 + `uiSession.sessionStatus` 取代了 0.1.5 的
-  `connection.api.events`、`approval/question requested` 与 `session/jobs` 帧；
-  0.1.5 及更早版本**不再兼容**。
-- 验证记录(2026-10-28):对照 `deepseek-harness` 0.2.1 源码逐项核对事件名、载荷与控制流
-  (`approval/request` waterfall 的注册顺序、`pendingInteraction` 的 `kind`/`key`、
-  `turn/end` 的 `reason.kind`、`api-session/error`、goal 投影)，并用 `tools/test-client.mjs`
-  的模拟运行时跑通七类事件；本地桌面 profile 已以 `link:` 方式安装，插件页能渲染声明的图标与
-  本地化名称/简介；本次**未**在真实会话中逐项复验声音行为。
-
-**依赖**
-
-- 宿主端:仅 `@deepseek-ai/schemastery`(设置 schema)与 peer 依赖 `@deepseek-ai/cordis`,
-  无其他运行时依赖。
-- 客户端:React 由宿主应用通过客户端模块表提供,包内不携带副本;客户端半体只使用宿主
-  已暴露的服务(`sessions` / `locale` / `slots`,以及可选的 `uiSession` / `remote`)。
-
-**能力与权限**
-
-- 本地文件:设置面板打开浏览器自带的文件选择器,读取用户主动选择的音频文件,
-  存入 IndexedDB(`dsh-sound-audio`);没有浏览器沙箱之外的文件系统访问,也不会自动扫描文件。
-- 存储:配置存 `localStorage`(`dsh-sound:config`),音频存 IndexedDB。
-- 无网络请求、无外部服务、无 shell/命令执行、无凭据、无原生制品,
-  也没有安装期生命周期脚本(`preinstall` / `install` / `postinstall` / `prepare` 均不存在)。
-
-**失败边界**
-
-- 播放失败(浏览器自动播放策略、音频不支持)静默降级,界面不受影响。
-- IndexedDB/localStorage 不可用时退化为内存配置;读不到的音频引用直接忽略。
-- 事件流不可用或帧解析失败时降级为会话快照 diff;畸形帧被忽略且不崩溃。
-- 每次读取配置都会按已知字段与默认值做清洗。
-
-## 开发
-
-```sh
-npm test      # 宿主端 + 客户端 100 余项自动化断言（Node 即可，无需浏览器）
-npm run check # 语法检查
-```
-
-结构：
-
-> **开发注意**：profile 的 pnpm 使用 `nodeLinker: hoisted`，安装时会**拷贝**
-> `file:` 依赖到 `node_modules`——直接改本仓库不会立即生效，需要
-> 重新执行 `pnpm --dir ~/.dsh/profiles/web update @ai-galaxy/dsh-sound`，或把
-> `~/.dsh/profiles/web/node_modules/@ai-galaxy/dsh-sound` 换成指向本目录的软链。
-> Web 服务按请求读取 bundle 内容（只有 boot 页的 rev 哈希在启动时缓存），
-> 刷新拷贝后浏览器硬刷新（Cmd+Shift+R）即可，无需重启服务。
-
-- `lib/index.js` — 宿主端：导出 Config（schema 校验 + 默认值）
-- `lib/client.js` — 浏览器端 bundle：事件检测、声音引擎（Web Audio / IndexedDB 音频）、设置面板
-- `lib/types/index.d.ts` — 宿主端类型声明
-- `cordis.patch.yml` — bundle 补丁层（插入 `dsh-sound` 行）
-- `tools/` — 测试与验收脚本（不随 npm 包发布）
-
-## 发布
-
-以 `@ai-galaxy/dsh-sound` 发布（需要 `ai-galaxy` npm 组织成员权限；
-`publishConfig.access` 已设为 `public`）。
-
-```sh
-npm login                       # 登录 npm（建议开启 2FA）
-npm publish --access public
-```
-
-## 许可证
-
-[MIT](LICENSE)
+- [事件、设置、存储与兼容](docs/events-and-storage.zh.md)
+- [开发](docs/development.md) · [开发规范](https://github.com/iBobbyTS/dsh-sound/blob/main/AGENTS.md)
+- [历史](CHANGELOG.md) · [MIT 许可](LICENSE)
