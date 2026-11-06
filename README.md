@@ -149,10 +149,8 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
 - **Export / import**: the settings panel downloads the full config as JSON
   (IndexedDB audio references are inlined as data URLs) and restores it from a
   JSON file — moving browsers or machines does not require reconfiguration.
-- The host half also registers the `dsh-sound` settings namespace: on rc.6 the
-  settings API allowlist (`WEB_SETTINGS_NAMESPACES` in `dsh-host-apiproxy`) does not expose
-  third-party namespaces to browsers, so the client does not depend on `settingsScope` today;
-  the registration keeps the migration path open for future releases.
+- The host half exports its `Config` schema for Loader discovery. Browser sound
+  preferences remain in localStorage; no settings-service registration is needed.
 
 ## Compatibility & capability disclosure
 
@@ -219,7 +217,7 @@ Layout:
 > startup), so after refreshing the copy a browser hard-refresh (Cmd+Shift+R)
 > is enough — no server restart needed.
 
-- `lib/index.js` — host half: registers the settings namespace (schema + defaults)
+- `lib/index.js` — host half: exports Config (schema + defaults)
 - `lib/client.js` — browser bundle: event detection, sound engine
   (Web Audio / IndexedDB audio), settings panel
 - `lib/types/index.d.ts` — host-side type declarations

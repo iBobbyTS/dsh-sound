@@ -11,25 +11,11 @@ const ok = (cond, label) => {
 ok(name === 'dsh-sound', 'name export')
 ok(Array.isArray(inject) && inject.length === 0, 'inject export is empty array')
 
-// 1) settings service never appears -> silent no-op (late inject never fires)
-let threw = false
-try {
-  apply({ inject: (deps, cb) => { /* never call cb */ } })
-} catch (e) { threw = true }
-ok(!threw, 'apply without settings service does not throw and waits silently')
-
-// 2) settings service appears -> namespace registered with applies live
-let registered = null
-const fakeSettings = {
-  register: (ns, schema, opts) => { registered = { ns, schema, opts }; return {} },
-}
-apply({
-  inject: (deps, cb) => {
-    if (deps.includes('settings')) cb({ settings: fakeSettings })
-  },
-})
-ok(registered && registered.ns === 'dsh-sound', 'namespace registered as dsh-sound')
-ok(registered && registered.opts.applies === 'live', 'applies=live')
+// The real settings service has no register method. Applying the Host half
+// must neither require that service nor call a fictitious registration API.
+apply({ settings: {} })
+ok(true, 'apply does not require settings.register')
+const registered = { schema: Config }
 
 // 3) schema resolves defaults (0.3.0: six independent sounds + six volumes)
 const resolved = registered.schema({})

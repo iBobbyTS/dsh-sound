@@ -132,9 +132,8 @@ dsh plugin --profile web add github:AI-Galaxy-GPU/dsh-sound
   voice/TTS 值降级为该类默认音。
 - **导出 / 导入**：设置面板可把完整配置下载为 JSON（IndexedDB 音频引用内嵌为 data URL），
   也可从 JSON 文件恢复——换浏览器 / 换设备无需重新配置。
-- 宿主端同时注册 `dsh-sound` 设置命名空间：rc.6 的 settings API 白名单
-  （`dsh-host-apiproxy` 的 `WEB_SETTINGS_NAMESPACES`）不会把第三方命名空间暴露给浏览器，
-  该注册为平台开放暴露机制后的无缝迁移预留（客户端存储接口外形与 settingsScope 一致）。
+- 宿主端导出 `Config`，由 Loader 发现配置 schema。浏览器声音偏好仍保存于
+  localStorage，不需要额外调用 settings 服务注册。
 
 ## 兼容性与能力披露
 
@@ -189,7 +188,7 @@ npm run check # 语法检查
 > Web 服务按请求读取 bundle 内容（只有 boot 页的 rev 哈希在启动时缓存），
 > 刷新拷贝后浏览器硬刷新（Cmd+Shift+R）即可，无需重启服务。
 
-- `lib/index.js` — 宿主端：注册 settings 命名空间（schemas 校验 + 默认值）
+- `lib/index.js` — 宿主端：导出 Config（schema 校验 + 默认值）
 - `lib/client.js` — 浏览器端 bundle：事件检测、声音引擎（Web Audio / IndexedDB 音频）、设置面板
 - `lib/types/index.d.ts` — 宿主端类型声明
 - `cordis.patch.yml` — bundle 补丁层（插入 `dsh-sound` 行）
