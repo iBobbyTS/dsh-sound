@@ -6,6 +6,10 @@
 
 这是 [AI-Galaxy-GPU/dsh-sound](https://github.com/AI-Galaxy-GPU/dsh-sound) 的 [iBobbyTS fork](https://github.com/iBobbyTS/dsh-sound)。以下安装本 checkout；上游 npm 包不包含本 fork 的改动。
 
+## 兼容性
+
+已验证：DSH 0.2.2-rc.1（源码与自动化检查）；尚未完成 Desktop 实测。
+
 ## 安装
 
 需要 DSH、Node.js `>=20`，以及 DSH 插件安装所需的 pnpm。仓库已包含运行文件，无需构建。

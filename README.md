@@ -6,6 +6,10 @@ Sound notifications for DSH Web UI and Desktop: turn completion, queued human fo
 
 This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-sound) of [AI-Galaxy-GPU/dsh-sound](https://github.com/AI-Galaxy-GPU/dsh-sound). Install this checkout to get the fork's changes; the upstream npm package does not include them.
 
+## Compatibility
+
+Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing has not been completed.
+
 ## Install
 
 Requires DSH, Node.js `>=20`, and pnpm for DSH plugin installation. The repository already contains the runtime files and needs no build.
