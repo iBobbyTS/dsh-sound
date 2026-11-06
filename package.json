@@ -36,15 +36,19 @@
     "README.zh.md",
     "LICENSE",
     "CHANGELOG.md",
-    "docs"
+    "docs",
+    "src"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
     "access": "public"
   },
   "scripts": {
-    "test": "node tools/test-host.mjs && node tools/test-client.mjs",
-    "check": "node --check lib/index.js && node --check lib/client.js"
+    "test": "node scripts/check.mjs test",
+    "check": "node scripts/check.mjs all",
+    "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "check:dist": "node scripts/check.mjs dist"
   },
   "keywords": [
     "dsh",
@@ -70,18 +74,21 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-settings"
       ]
-    },
-    "compatibility": {
-      "dshReleases": {
-        "0.2.1-rc.2": "compatible",
-        "0.2.1-rc.3": "compatible"
-      }
     }
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1"
-  },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "react": "^18.3.1"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "tsdown": "0.22.14",
+    "@types/node": "22.20.5",
+    "@types/react": "18.3.31",
+    "react": "18.3.1",
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/schemastery": "3.19.0"
   }
 }

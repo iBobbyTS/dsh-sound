@@ -14,4 +14,6 @@ Provide local browser sound notifications for DSH events, with independent main/
 
 [README](README.md) and its Chinese translation are the human entry. [Events and storage](docs/events-and-storage.md) owns detection/settings details; [development](docs/development.md) owns local loading and checks. CHANGELOG is history.
 
-Use the affected `npm test` and `npm run check` checks; distinguish simulated browser contracts from real playback. Verify both documentation languages, links, and package document delivery after documentation changes.
+Use the affected `pnpm test` and `pnpm check` checks; distinguish simulated browser contracts from real playback. Verify both documentation languages, links, and package document delivery after documentation changes.
+
+开发、构建与交付遵循父目录 [统一规范](../docs/plugin-development.md)。`src/` 是编辑源，`lib/` 由显式构建生成并与源码一同交付。

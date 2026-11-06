@@ -5,3 +5,7 @@ node_modules/
 
 # OS Junk
 *.DS_Store
+
+node_modules/
+.build/
+*.tgz
