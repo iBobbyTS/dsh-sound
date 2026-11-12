@@ -8,7 +8,7 @@ This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-sound) of [AI-Galaxy
 
 ## Compatibility
 
-Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing has not been completed.
+Verified: DSH 0.2.2-rc.2 (source review, automated checks, and isolated Web checks). Preview and session completion both produced Web Audio playback nodes. Desktop, hardware sound quality, and the other event sounds have not been tested in the real UI.
 
 ## Install
 

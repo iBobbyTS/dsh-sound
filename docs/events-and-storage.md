@@ -110,7 +110,7 @@ and play; a local-file row with a choose/replace button appears when 本地文�
 **Compatibility**
 
 - Node.js `>=20`; package compatibility declarations remain in `package.json`.
-- DSH `0.2.2-rc.1` has been checked against source contracts and automated tests. This is not a real Desktop per-event sound acceptance result. The open peer ranges and older manifest declarations do not certify every host version.
+- DSH `0.2.2-rc.2` has source-contract and automated checks. Isolated Web preview and session completion produced Web Audio playback nodes; other real-UI event sounds, hardware sound quality, and Desktop remain untested. The open peer ranges and older manifest declarations do not certify every host version.
 
 **Dependencies**
 

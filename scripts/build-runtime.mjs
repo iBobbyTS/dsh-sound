@@ -2,6 +2,7 @@ import { build } from 'tsdown'
 import { rmSync } from 'node:fs'
 
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 // Only this package's generated runtime directory is owned by this build.
 rmSync('lib', { recursive: true, force: true })
 await build({
@@ -21,4 +22,6 @@ await build({
  },
 })
 
-execFileSync('pnpm', ['exec','tsc','-p','tsconfig.build.json'], {stdio:'inherit'})
+// Use the lockfile-installed compiler without starting another package manager.
+const require = createRequire(import.meta.url)
+execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.build.json'], { stdio: 'inherit' })
